@@ -966,9 +966,19 @@ fastify.get("/start-relay", async (request, reply) => {
     .slice(0, 6) || "0000";
 
   const roomId = digits || "0000";
-  const wsUrlWithRoom = `${WS_BASE}?roomId=${encodeURIComponent(roomId)}`;
 
-  // Dynamic greeting so caller hears their room code
+  // 🔥 Build the WS URL from the actual incoming host/protocol
+  const host = request.headers["host"]; // e.g. "twilio-pictionary-hotline.onrender.com"
+  const protoHeader = request.headers["x-forwarded-proto"] || "https"; // "https" on Render
+  const scheme = Array.isArray(protoHeader) ? protoHeader[0] : protoHeader;
+  const wsScheme = scheme === "https" ? "wss" : "ws";
+
+  const wsUrlWithRoom = `${wsScheme}://${host}/ws?roomId=${encodeURIComponent(
+    roomId
+  )}`;
+
+  fastify.log.info({ roomId, wsUrlWithRoom }, "ConversationRelay WS URL");
+
   const greeting = `Room code ${roomId} confirmed. Now say a theme for your word, like animals, space, Halloween, food, or say random. Say quit to end the call.`;
 
   const twiml = `
@@ -981,6 +991,7 @@ fastify.get("/start-relay", async (request, reply) => {
 
   reply.type("text/xml").send(twiml.trim());
 });
+
 
 // WebSocket routes: /ws (phone) and /ws-web (browser)
 fastify.register(async function (instance) {
