@@ -35,7 +35,7 @@ function getRoom(id = "default") {
       phoneSocket: null, // Twilio ConversationRelay WebSocket
       drawerSocket: null, // web drawer
       callerSocket: null, // web caller
-      mode: "menu", // "menu" | "pictionary" //Just in case we add more games later
+      mode: "menu", // "menu" | "pictionary"
       targetWord: null,
       drawSegments: [], // store drawings to prevent refresh clear
       theme: null,
@@ -74,7 +74,7 @@ async function generatePictionaryWord(themeRaw) {
     return pickRandomWord(PICTIONARY_WORDS);
   }
 
-  // If the caller says "random" or something similar, pick at random random
+  // If the caller says "random" or something similar, pick at random
   if (!theme || /random/i.test(theme)) {
     return pickRandomWord(PICTIONARY_WORDS);
   }
@@ -95,10 +95,8 @@ Do NOT add any explanation, punctuation, or extra text. Just the word itself.
     });
 
     const raw = completion.output[0]?.content[0]?.text?.trim() || "";
-    // In case something with multiple lines is selected just use the first
     const firstLine = raw.split("\n")[0].trim();
 
-    // If prompt is empty
     if (!firstLine) {
       return pickRandomWord(PICTIONARY_WORDS);
     }
@@ -112,8 +110,7 @@ Do NOT add any explanation, punctuation, or extra text. Just the word itself.
 
 async function startPictionary(room, explicitWord = null) {
   room.mode = "pictionary";
-  room.targetWord =
-    explicitWord || pickRandomWord(PICTIONARY_WORDS);
+  room.targetWord = explicitWord || pickRandomWord(PICTIONARY_WORDS);
   room.drawSegments = []; // reset drawing for new round
 
   // Phone instructions
@@ -149,7 +146,10 @@ async function handlePhonePrompt(room, textRaw) {
 
   // Exit / Quit ends the call
   if (text.includes("quit") || text.includes("exit")) {
-    sendToPhone(room, "Thanks for joining. We here at pictionary hotline, appreciate that you had better ways to use your time. Goodbye.");
+    sendToPhone(
+      room,
+      "Thanks for joining. We here at pictionary hotline, appreciate that you had better ways to use your time. Goodbye."
+    );
     if (room.phoneSocket) room.phoneSocket.close();
     return;
   }
@@ -395,7 +395,7 @@ fastify.get("/", async (request, reply) => {
       </div>
     </div>
 
-         <script>
+    <script>
       const params = new URLSearchParams(window.location.search);
       const role = params.get("role") || "drawer";
 
@@ -413,53 +413,51 @@ fastify.get("/", async (request, reply) => {
       const chatHint = document.getElementById("chatHint");
       const howToList = document.getElementById("howToList");
 
-let chatEnabled = false;
+      let chatEnabled = false;
 
-// Clear the default list item
-if (howToList) {
-  howToList.innerHTML = "";
-}
+      // Clear the default list item
+      if (howToList) {
+        howToList.innerHTML = "";
+      }
 
-if (role === "drawer") {
-  if (roleInfoPanel) {
-    roleInfoPanel.textContent =
-      "You are the DRAWER. You will be given a word to draw for the caller.";
-  }
+      if (role === "drawer") {
+        if (roleInfoPanel) {
+          roleInfoPanel.textContent =
+            "You are the DRAWER. You will be given a word to draw for the caller.";
+        }
 
-  if (howToList) {
-    const items = [
-      "Have your friend, or whoever else you're playing with call the hotline number 1 559 524 4505.",
-      "They will be asked for a theme which will be used to prompt AI to choose the word you draw (A great use of OpenAI's API I know)",
-      "Draw or describe it (without saying the word) so they can guess. You can also enable chat, to type messages that will be read out to the caller (It's on you if you use this to cheat)"
-    ];
-    howToList.innerHTML = items
-      .map((text) => "<li>" + text + "</li>")
-      .join("");
-  }
-} else if (role === "caller") {
-  if (roleInfoPanel) {
-    roleInfoPanel.textContent =
-      "You are the CALLER. Try and guess what the drawer is illustrating so beautifully for you";
-  }
+        if (howToList) {
+          const items = [
+            "Have your friend, or whoever else you're playing with call the hotline number 1 559 524 4505.",
+            "They will be asked for a theme which will be used to prompt AI to choose the word you draw (A great use of OpenAI's API I know)",
+            "Draw or describe it (without saying the word) so they can guess. You can also enable chat, to type messages that will be read out to the caller (It's on you if you use this to cheat)"
+          ];
+          howToList.innerHTML = items
+            .map((text) => "<li>" + text + "</li>")
+            .join("");
+        }
+      } else if (role === "caller") {
+        if (roleInfoPanel) {
+          roleInfoPanel.textContent =
+            "You are the CALLER. Try and guess what the drawer is illustrating so beautifully for you";
+        }
 
-  if (chatPanel) {
-    chatPanel.style.display = "none";
-  }
+        if (chatPanel) {
+          chatPanel.style.display = "none";
+        }
 
-  if (howToList) {
-    const items = [
-      "Call the Pictionary Hotline number 1 559 524 4505.",
-      "You will be prompted for a theme, AI will then be given your theme to choose the word drawn (Great use of Open AI's API I know).",
-      "Watch the canvas here as the drawer sketches the secret word.",
-      "Try and guess what the drawer's word is by speaking your guesses into the phone"
-    ];
-    howToList.innerHTML = items
-      .map((text) => "<li>" + text + "</li>")
-      .join("");
-  }
-}
-
-
+        if (howToList) {
+          const items = [
+            "Call the Pictionary Hotline number 1 559 524 4505.",
+            "You will be prompted for a theme, AI will then be given your theme to choose the word drawn (Great use of Open AI's API I know).",
+            "Watch the canvas here as the drawer sketches the secret word.",
+            "Try and guess what the drawer's word is by speaking your guesses into the phone"
+          ];
+          howToList.innerHTML = items
+            .map((text) => "<li>" + text + "</li>")
+            .join("");
+        }
+      }
 
       function log(msg) {
         const div = document.createElement("div");
@@ -585,6 +583,12 @@ if (role === "drawer") {
           log("Back to menu.");
         }
 
+        // clear drawing when caller disconnects / server asks
+        if (msg.type === "clearDrawing") {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          log("Canvas cleared (caller disconnected).");
+        }
+
         // replay existing drawing on join / refresh
         if (msg.type === "initDrawing") {
           ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -697,12 +701,74 @@ fastify.get("/twiml", async (request, reply) => {
 });
 
 // WebSocket routes: /ws (phone) and /ws-web (browser)
-// WEB WebSocket (drawer / caller tab)
 fastify.register(async function (instance) {
+  // PHONE WebSocket (Twilio ConversationRelay)
   instance.get("/ws", { websocket: true }, (socket, req) => {
-    // ... your /ws handler stays the same ...
+    const room = getRoom("default");
+    room.phoneSocket = socket;
+
+    fastify.log.info("Phone WebSocket connection opened");
+    sendToPhone(
+      room,
+      "Welcome to the Pictionary Hotline. Say a theme for your word, like 'animals', 'space', 'Halloween', 'food', or say 'random'. Say Quit to end the call."
+    );
+    sendToWeb(room, {
+      type: "status",
+      message: "Caller connected. Waiting for them to pick a theme.",
+    });
+
+    socket.on("message", async (data) => {
+      let parsed;
+      try {
+        parsed = JSON.parse(data.toString());
+      } catch {
+        fastify.log.warn(
+          "Non-JSON message from phone socket:",
+          data.toString()
+        );
+        return;
+      }
+
+      fastify.log.info({ parsed }, "WS message from phone");
+
+      if (parsed.type === "prompt") {
+        const text = parsed.voicePrompt || parsed.text || "";
+        fastify.log.info({ text }, "Caller said (recognized text)");
+        await handlePhonePrompt(room, text);
+      }
+    });
+
+    socket.on("close", () => {
+      fastify.log.info("Phone WebSocket closed");
+
+      // Clear phone socket
+      room.phoneSocket = null;
+
+      // 🔁 Reset room state when caller disconnects
+      room.mode = "menu";
+      room.targetWord = null;
+      room.theme = null;
+      room.drawSegments = []; // drop all drawing from previous caller
+
+      // Let web clients know what's up
+      sendToWeb(room, {
+        type: "status",
+        message: "Caller disconnected. Waiting for a new call.",
+      });
+
+      // Put web UI back into menu mode
+      sendToWeb(room, {
+        type: "menu",
+      });
+
+      // Tell clients to clear the canvas
+      sendToWeb(room, {
+        type: "clearDrawing",
+      });
+    });
   });
 
+  // WEB WebSocket (drawer / caller tab)
   instance.get("/ws-web", { websocket: true }, (socket, req) => {
     const room = getRoom("default");
     fastify.log.info("Web WebSocket connection opened");
@@ -751,7 +817,7 @@ fastify.register(async function (instance) {
 
         socket.send(JSON.stringify(statusPayload));
 
-        // 🔍 LOG how many segments we think we have
+        // Log how many segments we think we have
         fastify.log.info(
           { count: room.drawSegments.length },
           "Sending initDrawing to new web client"
