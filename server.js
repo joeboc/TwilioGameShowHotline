@@ -12,15 +12,13 @@ const openai = new OpenAI({
 const PORT = process.env.PORT || 3000;
 const DOMAIN = process.env.NGROK_URL || "localhost";
 
-// WebSocket for Twilio ConversationRelay
-const WS_URL =
+// WebSocket base for Twilio ConversationRelay (roomId will be appended as query)
+const WS_BASE =
   DOMAIN === "localhost"
     ? `ws://localhost:${PORT}/ws`
     : `wss://${DOMAIN}/ws`;
 
-console.log("WS_URL is:", WS_URL);
-
-const GREETING = "Hello Caller";
+console.log("WS_BASE is:", WS_BASE);
 
 // Test word lists for games
 const PICTIONARY_WORDS = ["bear", "spaceship", "pizza", "guitar", "castle"];
@@ -43,6 +41,13 @@ function getRoom(id = "default") {
     rooms.set(id, room);
   }
   return room;
+}
+
+function resetRoom(room) {
+  room.mode = "menu";
+  room.targetWord = null;
+  room.theme = null;
+  room.drawSegments = [];
 }
 
 function pickRandomWord(list) {
@@ -148,18 +153,18 @@ async function handlePhonePrompt(room, textRaw) {
   if (text.includes("quit") || text.includes("exit")) {
     sendToPhone(
       room,
-      "Thanks for joining. We here at pictionary hotline, appreciate that you had better ways to use your time. Goodbye."
+      "Thanks for joining. We here at the Pictionary Hotline appreciate that you had better ways to use your time. Goodbye."
     );
     if (room.phoneSocket) room.phoneSocket.close();
     return;
   }
 
   if (room.mode === "menu") {
-    // Use the first word heard as the first Theme
+    // Use the first word heard as the Theme
     room.theme = textRaw;
     sendToPhone(
       room,
-      `Nice Theme! We will find a word related to: ${textRaw} for the Drawer to draw.`
+      `Nice theme! We will find a word related to: ${textRaw} for the Drawer to draw.`
     );
 
     const word = await generatePictionaryWord(textRaw);
@@ -174,7 +179,7 @@ async function handlePhonePrompt(room, textRaw) {
     if (target && normalized.includes(target.split(" ")[0])) {
       sendToPhone(
         room,
-        `You Got it! The word was ${room.targetWord}. Nice job!`
+        `You got it! The word was ${room.targetWord}. Nice job!`
       );
       sendToWeb(room, {
         type: "roundResult",
@@ -197,8 +202,215 @@ async function handlePhonePrompt(room, textRaw) {
 const fastify = Fastify({ logger: true });
 fastify.register(fastifyWs);
 
-// --Web page Drawer and Caller UI--
+/**
+ * HOME PAGE: Choose role + enter numeric room code
+ */
 fastify.get("/", async (request, reply) => {
+  reply.type("text/html").send(`
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Pictionary Hotline</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: radial-gradient(circle at top, #1f2937, #020617);
+        color: #e5e7eb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+      .card {
+        background: rgba(15,23,42,0.95);
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+        max-width: 640px;
+        width: 100%;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 1.8rem;
+      }
+      .subtitle {
+        font-size: 0.95rem;
+        color: #94a3b8;
+        margin-bottom: 16px;
+      }
+      .section-title {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #64748b;
+        margin-bottom: 6px;
+      }
+      .panel {
+        border-radius: 12px;
+        padding: 12px 14px;
+        background: rgba(15,23,42,0.8);
+        border: 1px solid rgba(148,163,184,0.2);
+        margin-bottom: 12px;
+      }
+      .room-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .room-input {
+        flex: 1;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(148,163,184,0.6);
+        background: #020617;
+        color: #e5e7eb;
+        font-size: 1rem;
+        text-align: center;
+        letter-spacing: 0.15em;
+      }
+      .room-input::placeholder {
+        letter-spacing: 0;
+      }
+      .small-button {
+        padding: 7px 10px;
+        border-radius: 10px;
+        border: none;
+        background: #64748b;
+        color: #e5e7eb;
+        font-size: 0.8rem;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .role-buttons {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 8px;
+      }
+      .role-button {
+        padding: 14px 16px;
+        border-radius: 14px;
+        border: none;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+      }
+      .caller-btn {
+        background: #0f766e;
+        color: #ecfeff;
+      }
+      .drawer-btn {
+        background: #f97316;
+        color: #020617;
+      }
+      .role-caption {
+        font-size: 0.8rem;
+        opacity: 0.85;
+      }
+      .note {
+        font-size: 0.8rem;
+        color: #9ca3af;
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Pictionary Hotline</h1>
+      <div class="subtitle">
+        Possibly the weirdest way to play Pictionary. One person calls a phone hotline, the other opens this page. You both share a room code so you end up in the same chaos.
+      </div>
+
+      <div class="section-title">1. Choose a room code</div>
+      <div class="panel">
+        <div class="room-row">
+          <input
+            id="roomInput"
+            class="room-input"
+            maxlength="6"
+            placeholder="Enter 4–6 digit code"
+          />
+          <button id="randomCodeBtn" class="small-button">Random code</button>
+        </div>
+        <div class="note">
+          Share this code with your friend. The caller will enter it on the phone keypad, and the drawer will enter it here.
+        </div>
+      </div>
+
+      <div class="section-title">2. Pick your role</div>
+      <div class="panel">
+        <div class="role-buttons">
+          <button id="callerBtn" class="role-button caller-btn">
+            <span>I am the Caller</span>
+            <span class="role-caption">
+              I’m on the phone trying to guess the AI-chosen word.
+            </span>
+          </button>
+          <button id="drawerBtn" class="role-button drawer-btn">
+            <span>I am the Drawer</span>
+            <span class="role-caption">
+              I’m on the website drawing whatever cursed word we get.
+            </span>
+          </button>
+        </div>
+        <div class="note">
+          The caller dials the hotline and enters the same room code on their keypad. The drawer just clicks their role with the same code.
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const roomInput = document.getElementById("roomInput");
+      const randomCodeBtn = document.getElementById("randomCodeBtn");
+      const callerBtn = document.getElementById("callerBtn");
+      const drawerBtn = document.getElementById("drawerBtn");
+
+      function normalizeRoomCode() {
+        const raw = (roomInput.value || "").trim();
+        const digits = raw.replace(/\\D/g, "");
+        return digits.slice(0, 6); // allow 4–6 digits
+      }
+
+      function ensureRoomCode() {
+        let code = normalizeRoomCode();
+        if (!code) {
+          // generate random 4-digit
+          code = Math.floor(1000 + Math.random() * 9000).toString();
+          roomInput.value = code;
+        }
+        return code;
+      }
+
+      randomCodeBtn.addEventListener("click", () => {
+        const code = Math.floor(1000 + Math.random() * 9000).toString();
+        roomInput.value = code;
+      });
+
+      callerBtn.addEventListener("click", () => {
+        const code = ensureRoomCode();
+        window.location.href = "/play?role=caller&roomId=" + encodeURIComponent(code);
+      });
+
+      drawerBtn.addEventListener("click", () => {
+        const code = ensureRoomCode();
+        window.location.href = "/play?role=drawer&roomId=" + encodeURIComponent(code);
+      });
+    </script>
+  </body>
+</html>
+  `);
+});
+
+/**
+ * PLAY PAGE: actual game UI, uses role + roomId
+ */
+fastify.get("/play", async (request, reply) => {
   reply.type("text/html").send(`
 <!doctype html>
 <html>
@@ -238,7 +450,13 @@ fastify.get("/", async (request, reply) => {
       .subtitle {
         font-size: 0.9rem;
         color: #94a3b8;
-        margin-bottom: 16px;
+        margin-bottom: 8px;
+      }
+
+      .room-tag {
+        font-size: 0.8rem;
+        color: #a5b4fc;
+        margin-bottom: 8px;
       }
 
       .section-title {
@@ -328,6 +546,23 @@ fastify.get("/", async (request, reply) => {
         font-size: 0.85rem;
         cursor: pointer;
       }
+
+      .back-row {
+        margin-top: 4px;
+      }
+      .back-button {
+        margin-top: 6px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(148,163,184,0.6);
+        background: transparent;
+        color: #c7d2fe;
+        font-size: 0.8rem;
+        cursor: pointer;
+      }
+      .back-button:hover {
+        background: rgba(129,140,248,0.1);
+      }
     </style>
   </head>
   <body>
@@ -336,16 +571,20 @@ fastify.get("/", async (request, reply) => {
       <div>
         <h1>Pictionary Hotline</h1>
         <div class="subtitle">
-          Possibly the weirdest way to play pictionary
+          Possibly the weirdest way to play Pictionary.
         </div>
+        <div id="roomTag" class="room-tag"></div>
+        <div class="back-row">
+          <button id="backHome" class="back-button">← Back to home</button>
+        </div>
+
         <div class="panel" id="roleInfoPanel" style="margin-top:12px; font-size:0.8rem; color:#9ca3af;"></div>
 
         <div class="section-title">How to play</div>
         <div class="panel">
           <ol id="howToList" style="padding-left: 18px; margin: 0; font-size: 0.85rem;">
-          <li>Default Non role specific...</li>
-</ol>
-
+            <li>Default non role-specific instructions...</li>
+          </ol>
         </div>
 
         <div class="section-title">Connection</div>
@@ -398,6 +637,7 @@ fastify.get("/", async (request, reply) => {
     <script>
       const params = new URLSearchParams(window.location.search);
       const role = params.get("role") || "drawer";
+      const roomId = params.get("roomId") || "0000";
 
       const statusEl = document.getElementById("status");
       const logEl = document.getElementById("log");
@@ -412,8 +652,20 @@ fastify.get("/", async (request, reply) => {
       const chatToggle = document.getElementById("chatToggle");
       const chatHint = document.getElementById("chatHint");
       const howToList = document.getElementById("howToList");
+      const roomTag = document.getElementById("roomTag");
+      const backHome = document.getElementById("backHome");
+
+      if (backHome) {
+        backHome.addEventListener("click", () => {
+          window.location.href = "/";
+        });
+      }
 
       let chatEnabled = false;
+
+      if (roomTag) {
+        roomTag.textContent = "Room code: " + roomId;
+      }
 
       // Clear the default list item
       if (howToList) {
@@ -423,23 +675,22 @@ fastify.get("/", async (request, reply) => {
       if (role === "drawer") {
         if (roleInfoPanel) {
           roleInfoPanel.textContent =
-            "You are the DRAWER. You will be given a word to draw for the caller.";
+            "You are the DRAWER. You will be given a word to draw for the caller in this room.";
         }
 
         if (howToList) {
           const items = [
-            "Have your friend, or whoever else you're playing with call the hotline number 1 559 524 4505.",
-            "They will be asked for a theme which will be used to prompt AI to choose the word you draw (A great use of OpenAI's API I know)",
-            "Draw or describe it (without saying the word) so they can guess. You can also enable chat, to type messages that will be read out to the caller (It's on you if you use this to cheat)"
+            "Have your friend, or whoever else you're playing with, call the Pictionary Hotline number 1 559 524 4505.",
+            "Tell them to enter the room code " + roomId + " on their phone keypad when prompted.",
+            "They will then be asked for a theme, which will be used to prompt AI to choose the word you draw.",
+            "Draw or describe the word (without saying the word itself) so they can guess. You can also enable chat to type hints that will be read out to the caller."
           ];
-          howToList.innerHTML = items
-            .map((text) => "<li>" + text + "</li>")
-            .join("");
+          howToList.innerHTML = items.map((text) => "<li>" + text + "</li>").join("");
         }
       } else if (role === "caller") {
         if (roleInfoPanel) {
           roleInfoPanel.textContent =
-            "You are the CALLER. Try and guess what the drawer is illustrating so beautifully for you";
+            "You are the CALLER'S HELPER. The caller is on the phone; use this view to watch the drawing and help them guess.";
         }
 
         if (chatPanel) {
@@ -448,14 +699,12 @@ fastify.get("/", async (request, reply) => {
 
         if (howToList) {
           const items = [
-            "Call the Pictionary Hotline number 1 559 524 4505.",
-            "You will be prompted for a theme, AI will then be given your theme to choose the word drawn (Great use of Open AI's API I know).",
-            "Watch the canvas here as the drawer sketches the secret word.",
-            "Try and guess what the drawer's word is by speaking your guesses into the phone"
+            "Make sure the person who is actually on the phone has the room code " + roomId + ".",
+            "They will call the Pictionary Hotline and enter this room code on their keypad when asked.",
+            "After that, they will be prompted for a theme such as animals, space, Halloween, or random.",
+            "Watch the canvas here as the drawer sketches the secret word and help the caller by describing what you see and thinking up guesses."
           ];
-          howToList.innerHTML = items
-            .map((text) => "<li>" + text + "</li>")
-            .join("");
+          howToList.innerHTML = items.map((text) => "<li>" + text + "</li>").join("");
         }
       }
 
@@ -556,7 +805,7 @@ fastify.get("/", async (request, reply) => {
         statusEl.textContent = "Connected. Waiting for caller to pick a theme.";
         log("Connected to game server.");
 
-        ws.send(JSON.stringify({ type: "joinWeb", roomId: "default", role }));
+        ws.send(JSON.stringify({ type: "joinWeb", roomId, role }));
       });
 
       ws.addEventListener("close", () => {
@@ -581,12 +830,6 @@ fastify.get("/", async (request, reply) => {
           roundInfoEl.textContent =
             "Caller is choosing the theme. They can say virtually anything so blame them for whatever word you get.";
           log("Back to menu.");
-        }
-
-        // clear drawing when caller disconnects / server asks
-        if (msg.type === "clearDrawing") {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          log("Canvas cleared (caller disconnected).");
         }
 
         // replay existing drawing on join / refresh
@@ -687,90 +930,130 @@ fastify.get("/", async (request, reply) => {
   `);
 });
 
-// TwiML for ConversationRelay
+/**
+ * TwiML entry point for Voice webhook:
+ * 1) Ask for 4–6 digit room code via DTMF
+ * 2) Send to /start-relay with method="GET" (Digits in query string)
+ */
 fastify.get("/twiml", async (request, reply) => {
   fastify.log.info("HTTP /twiml hit");
-  reply.type("text/xml").send(
-    `<?xml version="1.0" encoding="UTF-8"?>
+
+  // This is the first webhook Twilio hits when a call comes in
+  // We use <Gather> to collect the room code via keypad
+  const twiml = `
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Gather input="dtmf" numDigits="6" action="/start-relay" method="GET">
+    <Say>Welcome to the Pictionary Hotline. Please enter your 4 to 6 digit room code, then press the pound key.</Say>
+  </Gather>
+  <Say>We didn't receive any input. Goodbye.</Say>
+  <Hangup/>
+</Response>`;
+
+  reply.type("text/xml").send(twiml.trim());
+});
+
+/**
+ * After DTMF is entered, Twilio calls this with ?Digits=xxxx
+ * Here we connect the call to ConversationRelay and pass roomId in the ws URL.
+ */
+fastify.get("/start-relay", async (request, reply) => {
+  fastify.log.info({ query: request.query }, "HTTP /start-relay hit");
+
+  const digits = (request.query.Digits || request.query.digits || "0000")
+    .toString()
+    .replace(/\D/g, "")
+    .slice(0, 6) || "0000";
+
+  const roomId = digits || "0000";
+  const wsUrlWithRoom = `${WS_BASE}?roomId=${encodeURIComponent(roomId)}`;
+
+  // Dynamic greeting so caller hears their room code
+  const greeting = `Room code ${roomId} confirmed. Now say a theme for your word, like animals, space, Halloween, food, or say random. Say quit to end the call.`;
+
+  const twiml = `
+<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <ConversationRelay url="${WS_URL}" welcomeGreeting="${GREETING}" />
+    <ConversationRelay url="${wsUrlWithRoom}" welcomeGreeting="${greeting}" />
   </Connect>
-</Response>`
-  );
+</Response>`;
+
+  reply.type("text/xml").send(twiml.trim());
 });
 
 // WebSocket routes: /ws (phone) and /ws-web (browser)
 fastify.register(async function (instance) {
-  // PHONE WebSocket (Twilio ConversationRelay)
+  /**
+   * PHONE WebSocket (Twilio ConversationRelay)
+   * We now get roomId from the URL query (set in /start-relay).
+   */
   instance.get("/ws", { websocket: true }, (socket, req) => {
-    const room = getRoom("default");
+    // Parse roomId from ws URL query
+    const url = new URL(req.url, "http://dummy");
+    const roomId = (url.searchParams.get("roomId") || "0000").toString();
+
+    fastify.log.info({ roomId }, "Phone WebSocket connection opened");
+
+    const room = getRoom(roomId);
     room.phoneSocket = socket;
 
-    fastify.log.info("Phone WebSocket connection opened");
-    sendToPhone(
-      room,
-      "Welcome to the Pictionary Hotline. Say a theme for your word, like 'animals', 'space', 'Halloween', 'food', or say 'random'. Say Quit to end the call."
-    );
+    // Notify any web clients in this room that caller connected
     sendToWeb(room, {
       type: "status",
-      message: "Caller connected. Waiting for them to pick a theme.",
+      message:
+        "Caller connected to room " +
+        roomId +
+        ". Waiting for them to pick a theme.",
     });
 
     socket.on("message", async (data) => {
+      const raw = data.toString();
+      fastify.log.info({ raw }, "Phone WS raw message");
+
       let parsed;
       try {
-        parsed = JSON.parse(data.toString());
+        parsed = JSON.parse(raw);
       } catch {
-        fastify.log.warn(
-          "Non-JSON message from phone socket:",
-          data.toString()
-        );
+        fastify.log.warn("Non-JSON message from phone socket:", raw);
         return;
       }
 
-      fastify.log.info({ parsed }, "WS message from phone");
+      fastify.log.info({ parsed }, "Phone WS parsed message");
 
+      // Ignore setup/info/etc. Only care about prompts
       if (parsed.type === "prompt") {
         const text = parsed.voicePrompt || parsed.text || "";
-        fastify.log.info({ text }, "Caller said (recognized text)");
+        fastify.log.info({ roomId, text }, "Caller said (recognized text)");
         await handlePhonePrompt(room, text);
       }
     });
 
     socket.on("close", () => {
-      fastify.log.info("Phone WebSocket closed");
+      fastify.log.info({ roomId }, "Phone WebSocket closed");
 
-      // Clear phone socket
+      const room = getRoom(roomId);
       room.phoneSocket = null;
 
-      // 🔁 Reset room state when caller disconnects
-      room.mode = "menu";
-      room.targetWord = null;
-      room.theme = null;
-      room.drawSegments = []; // drop all drawing from previous caller
+      // Reset the room on caller disconnect
+      resetRoom(room);
 
-      // Let web clients know what's up
       sendToWeb(room, {
         type: "status",
-        message: "Caller disconnected. Waiting for a new call.",
+        message:
+          "Caller disconnected from room " +
+          roomId +
+          ". Room has been reset. Waiting for a new call.",
       });
-
-      // Put web UI back into menu mode
-      sendToWeb(room, {
-        type: "menu",
-      });
-
-      // Tell clients to clear the canvas
-      sendToWeb(room, {
-        type: "clearDrawing",
-      });
+      sendToWeb(room, { type: "menu" });
     });
   });
 
-  // WEB WebSocket (drawer / caller tab)
+  /**
+   * WEB WebSocket (drawer / caller tab)
+   * Uses roomId from joinWeb message to join per-room state.
+   */
   instance.get("/ws-web", { websocket: true }, (socket, req) => {
-    const room = getRoom("default");
     fastify.log.info("Web WebSocket connection opened");
 
     socket.on("message", (data) => {
@@ -784,8 +1067,13 @@ fastify.register(async function (instance) {
 
       // --- JOIN WEB ---
       if (parsed.type === "joinWeb") {
+        const roomId = (parsed.roomId || "0000").toString();
         let role = (parsed.role || "drawer").toLowerCase();
         if (role !== "caller") role = "drawer";
+
+        socket.roomId = roomId;
+
+        const room = getRoom(roomId);
 
         if (role === "drawer") {
           room.drawerSocket = socket;
@@ -795,7 +1083,7 @@ fastify.register(async function (instance) {
 
         fastify.log.info(
           {
-            roomId: parsed.roomId || "default",
+            roomId,
             role,
           },
           "Web client joined"
@@ -806,20 +1094,23 @@ fastify.register(async function (instance) {
               type: "status",
               message:
                 room.mode === "pictionary"
-                  ? "Caller is on the line. Pictionary round in progress."
-                  : "Connected to room. Caller is on the line and can pick a theme.",
+                  ? "Caller is on the line in this room. Pictionary round in progress."
+                  : "Connected to room " +
+                    roomId +
+                    ". Caller is on the line and can pick a theme.",
             }
           : {
               type: "status",
               message:
-                "Connected to room. Waiting for caller to dial the hotline.",
+                "Connected to room " +
+                roomId +
+                ". Waiting for caller to dial the hotline and enter this room code.",
             };
 
         socket.send(JSON.stringify(statusPayload));
 
-        // Log how many segments we think we have
         fastify.log.info(
-          { count: room.drawSegments.length },
+          { roomId, count: room.drawSegments.length },
           "Sending initDrawing to new web client"
         );
 
@@ -850,6 +1141,9 @@ fastify.register(async function (instance) {
         return;
       }
 
+      const roomId = socket.roomId || "0000";
+      const room = getRoom(roomId);
+
       // --- DRAW SEGMENT ---
       if (parsed.type === "drawSegment") {
         room.drawSegments.push({
@@ -860,7 +1154,7 @@ fastify.register(async function (instance) {
         });
 
         fastify.log.info(
-          { count: room.drawSegments.length },
+          { roomId, count: room.drawSegments.length },
           "Stored drawSegment; total segments now"
         );
 
@@ -872,7 +1166,7 @@ fastify.register(async function (instance) {
 
       // --- DRAWER CHAT ---
       if (parsed.type === "drawerChat") {
-        fastify.log.info({ text: parsed.text }, "Drawer chat message");
+        fastify.log.info({ roomId, text: parsed.text }, "Drawer chat message");
         sendToPhone(room, parsed.text);
 
         if (room.drawerSocket) {
@@ -890,14 +1184,18 @@ fastify.register(async function (instance) {
 
       if (parsed.type === "callerAnswer") {
         fastify.log.info(
-          { answer: parsed.answer },
+          { roomId, answer: parsed.answer },
           "Caller browser answered (unused)"
         );
       }
     });
 
     socket.on("close", () => {
-      fastify.log.info("Web WebSocket closed");
+      const roomId = socket.roomId || "0000";
+      const room = getRoom(roomId);
+
+      fastify.log.info({ roomId }, "Web WebSocket closed");
+
       if (room.drawerSocket === socket) room.drawerSocket = null;
       if (room.callerSocket === socket) room.callerSocket = null;
     });
