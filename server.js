@@ -326,7 +326,7 @@ fastify.get("/", async (request, reply) => {
     <div class="card">
       <h1>Pictionary Hotline (Powered by Twilio)</h1>
       <div class="subtitle">
-        Possibly the weirdest way to play Pictionary. Both players open this page, One player draws an image, the other makes their guesses on the Pictionary Hotline.
+        Possibly the weirdest way to play Pictionary. Both players open this page, One player draws an image, the other makes their guesses on the Pictionary Hotline +1(559)524-4505.
       </div>
 
       <div class="section-title">1. Choose a room code</div>
@@ -642,7 +642,7 @@ fastify.get("/play", async (request, reply) => {
         <div class="section-title">Chat to caller</div>
         <div id="chatPanel" class="panel">
           <div style="font-size:0.8rem; color:#9ca3af; margin-bottom:4px;">
-            Drawer can send short messages that will be read out to the caller.
+            Drawer can send messages that will be read out to the caller.
           </div>
           <button id="chatToggle" class="chat-button" style="margin-bottom:6px;">
             Enable chat to caller
@@ -651,7 +651,7 @@ fastify.get("/play", async (request, reply) => {
             <input
               id="chatInput"
               class="chat-input"
-              placeholder="Type a short hint to send to the caller..."
+              placeholder="Type a hint to send to the caller. We won't judge you too much for needing this...."
               disabled
             />
             <button id="chatSend" class="chat-button" disabled>Send</button>
@@ -660,7 +660,7 @@ fastify.get("/play", async (request, reply) => {
             id="chatHint"
             style="font-size:0.75rem; color:#9ca3af; margin-top:4px;"
           >
-            Chat to caller is currently OFF. Click "Enable chat to caller" to opt in.
+            Chat is currently disabled. Click "Enable chat to caller" to turn it on.
           </div>
         </div>
 
@@ -714,9 +714,9 @@ fastify.get("/play", async (request, reply) => {
 
         if (howToList) {
           const items = [
-            "Have your friend, or whoever else you're playing with, call the Pictionary Hotline number 1 559 524 4505.",
+            "Have your friend, or whoever else you're playing with, call the Pictionary Hotline number +1(559)524-4505.",
             "Tell them to enter the room code " + roomId + " on their phone keypad when prompted.",
-            "They will then be asked for a theme, which will be used to prompt AI to choose the word you draw.",
+            "They will then be asked for a theme, which will be used to prompt AI to choose the word you draw (So blame them for whatever word you get).",
             "Draw or describe the word (without saying the word itself) so they can guess. You can also enable chat to type hints that will be read out to the caller."
           ];
           howToList.innerHTML = items.map((text) => "<li>" + text + "</li>").join("");
