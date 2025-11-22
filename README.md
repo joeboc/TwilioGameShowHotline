@@ -1,6 +1,6 @@
 Pictionary Hotline
 
-The Pictionary Hotline is a small real-time cooperative game built around the Twilio Conversation Relay. The idea is simple: one player acts as the guesser speaking their guesses of what the word to be drawn is, the other draws a word based on the callers theme, both enter the same room code, and the two of them play Pictionary together. The caller hears instructions and guesses the word out loud, while the drawer sees a hidden word and sketches it on the site.
+The Pictionary Hotline is a small cooperative game built around the Twilio Conversation Relay. The idea is simple: one player acts as the guesser speaking their guesses of what the word to be drawn is, the other draws a word based on the callers theme, both enter the same room code, and the two of them play Pictionary together. The caller hears instructions and guesses the word out loud, while the drawer sees a hidden word and sketches it on the site.
 
 How It Works
 
@@ -26,11 +26,11 @@ Features
 
 Real-time drawing synced between browser clients.
 
-Speech-to-text from Twilio’s ConversationRelay.
+Speech to text from Twilio’s ConversationRelay.
 
-Room-based system so multiple people can play independently.
+Room based system so multiple people can play independently.
 
-Optional text-to-speech button for drawers who want to send typed hints to the caller.
+Optional text to speech button for drawers who want to send typed hints to the caller.
 
 Using the Hosted Version
 
@@ -56,8 +56,8 @@ Environment variables
 Create a .env file with:
 
 PORT=3000
-NGROK_URL=your-ngrok-url
-OPENAI_API_KEY=optional-key-for-word-generation
+NGROK_URL=yourngrokurl
+OPENAI_API_KEY=optionalkeyforwordgeneration
 (If no open AI key is given the base word list will be used)
 
 Run the server
@@ -69,4 +69,4 @@ ngrok http 3000
 
 Then set your Twilio number’s incoming call webhook to:
 
-https://your-ngrok-url/twiml
+https://yourngrokurl/twiml
